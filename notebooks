@@ -1,1 +1,1951 @@
 
+"""
+File: data_cleaner.py
+Author: Mohammad Hassan
+Description:
+    This class handles loading, cleaning, and preprocessing NHL data
+    for the Winnipeg Jets Moneyball Project. Supports Teams, Skaters, and Goalies datasets.
+"""
+
+import pandas as pd
+import numpy as np
+
+
+class NHLDataCleaner:
+    """
+    NHLDataCleaner: Class to load, clean, and preprocess NHL data files.
+
+    Attributes
+    ----------
+    teams_file : str
+        Path to Teams Excel file
+    skaters_file : str
+        Path to Skaters Excel file
+    goalies_file : str
+        Path to Goalies Excel file
+    teams : pd.DataFrame
+        DataFrame containing cleaned teams data
+    skaters : pd.DataFrame
+        DataFrame containing cleaned skaters data
+    goalies : pd.DataFrame
+        DataFrame containing cleaned goalies data
+    """
+
+    # -------------------------
+    # Initialization
+    # -------------------------
+    def __init__(self, teams_file: str, skaters_file: str, goalies_file: str):
+        """
+        Initialize NHLDataCleaner with file paths.
+
+        Parameters
+        ----------
+        teams_file : str
+            Path to Teams Excel file
+        skaters_file : str
+            Path to Skaters Excel file
+        goalies_file : str
+            Path to Goalies Excel file
+        """
+        self.teams_file = teams_file
+        self.skaters_file = skaters_file
+        self.goalies_file = goalies_file
+
+        # DataFrames to hold cleaned data
+        self.teams = None
+        self.skaters = None
+        self.goalies = None
+
+    # -------------------------
+    # Loading Data
+    # -------------------------
+    def load_data(self):
+        """
+        Load Excel files into pandas DataFrames.
+        """
+        self.teams = pd.read_excel(self.teams_file)
+        self.skaters = pd.read_excel(self.skaters_file)
+        self.goalies = pd.read_excel(self.goalies_file)
+        print("Data loaded successfully.")
+
+    # -------------------------
+    # Cleaning Helper Methods
+    # -------------------------
+    @staticmethod
+    def percent_to_float(series):
+        """
+        Convert percentage strings or numbers to float (0-1).
+
+        Handles input like '23.7%' or 23.7 and safely converts NaNs.
+
+        Parameters
+        ----------
+        series : pd.Series
+            Series containing percentage values
+
+        Returns
+        -------
+        pd.Series
+            Series converted to 0-1 float values
+        """
+        if pd.api.types.is_numeric_dtype(series):
+            # Already numeric, assume 0-100 scale
+            return series / 100
+        else:
+            # Convert string percentages
+            return pd.to_numeric(series.astype(str).str.replace('%', ''), errors='coerce') / 100
+
+    @staticmethod
+    def toi_to_minutes(toi_series):
+        """
+        Convert Time-On-Ice strings 'MM:SS' to float minutes.
+
+        Parameters
+        ----------
+        toi_series : pd.Series
+            Series with TOI strings like '12:34'
+
+        Returns
+        -------
+        pd.Series
+            Series with TOI as float minutes
+        """
+
+        def convert(toi_str):
+            try:
+                minutes, seconds = map(int, str(toi_str).split(":"))
+                return minutes + seconds / 60
+            except:
+                return np.nan
+
+        return toi_series.apply(convert)
+
+    @staticmethod
+    def strip_strings(df, cols):
+        """
+        Remove leading/trailing spaces from string columns.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            Input DataFrame
+        cols : list of str
+            List of column names to strip strings from
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with stripped string columns
+        """
+        for col in cols:
+            if col in df.columns:
+                df[col] = df[col].astype(str).str.strip()
+        return df
+
+    # -------------------------
+    # Cleaning Methods
+    # -------------------------
+    def clean_teams(self):
+        """
+        Clean and preprocess Teams data.
+        """
+        # Strip spaces from team names
+        self.teams = self.strip_strings(self.teams, ['Team'])
+
+        # Convert percentage columns safely
+        for col in ['PP%', 'PK%']:
+            if col in self.teams.columns:
+                self.teams[col] = self.percent_to_float(self.teams[col])
+
+        # Convert numeric columns
+        numeric_cols = ['GP', 'W', 'L', 'GF', 'GA', 'Shots/GP', 'SA/GP', 'FOW%']
+        for col in numeric_cols:
+            if col in self.teams.columns:
+                self.teams[col] = pd.to_numeric(self.teams[col], errors='coerce')
+
+        # Fill missing numeric values with median
+        self.teams = self.teams.fillna(self.teams.median(numeric_only=True))
+        print("Teams data cleaned.")
+
+    def clean_skaters(self):
+        """
+        Clean and preprocess Skaters data.
+        """
+        # Strip spaces from key string columns
+        self.skaters = self.strip_strings(self.skaters, ['Player', 'Team', 'Pos'])
+
+        # Convert numeric columns
+        numeric_cols = ['GP', 'G', 'A', 'P', '+/-', 'PIM', 'S', 'S%', 'TOI/GP', 'FOW%']
+        for col in numeric_cols:
+            if col in self.skaters.columns:
+                self.skaters[col] = pd.to_numeric(self.skaters[col], errors='coerce')
+
+        # Convert shooting percentages
+        if 'S%' in self.skaters.columns:
+            self.skaters['S%'] = self.percent_to_float(self.skaters['S%'])
+
+        # Convert TOI per game to minutes
+        if 'TOI/GP' in self.skaters.columns:
+            self.skaters['TOI_min'] = self.toi_to_minutes(self.skaters['TOI/GP'])
+
+        # Fill missing numeric values with median
+        self.skaters = self.skaters.fillna(self.skaters.median(numeric_only=True))
+        print("Skaters data cleaned.")
+
+    def clean_goalies(self):
+        """
+        Clean and preprocess Goalies data.
+        """
+        # Strip spaces from key string columns
+        self.goalies = self.strip_strings(self.goalies, ['Player', 'Team'])
+
+        # Convert numeric columns
+        numeric_cols = ['GP', 'GS', 'GF', 'GA', 'TOI']
+        for col in numeric_cols:
+            if col in self.goalies.columns:
+                self.goalies[col] = pd.to_numeric(self.goalies[col], errors='coerce')
+
+        # SV% conversion if necessary
+        if 'SV%' in self.goalies.columns:
+            self.goalies['SV%'] = pd.to_numeric(self.goalies['SV%'], errors='coerce')
+            self.goalies['SV%'] = np.where(self.goalies['SV%'] > 1, self.goalies['SV%'] / 100, self.goalies['SV%'])
+
+        # Convert TOI to minutes
+        if 'TOI' in self.goalies.columns:
+            self.goalies['TOI_min'] = self.toi_to_minutes(self.goalies['TOI'])
+
+        # Fill missing numeric values with median
+        self.goalies = self.goalies.fillna(self.goalies.median(numeric_only=True))
+        print("Goalies data cleaned.")
+
+    # -------------------------
+    # Save Cleaned Data
+    # -------------------------
+    def save_cleaned_data(self, teams_file='Teams_clean.csv', skaters_file='Skaters_clean.csv',
+                          goalies_file='Goalies_clean.csv'):
+        """
+        Save cleaned datasets to CSV files.
+
+        Parameters
+        ----------
+        teams_file : str
+            Output filename for Teams data
+        skaters_file : str
+            Output filename for Skaters data
+        goalies_file : str
+            Output filename for Goalies data
+        """
+        self.teams.to_csv(teams_file, index=False)
+        self.skaters.to_csv(skaters_file, index=False)
+        self.goalies.to_csv(goalies_file, index=False)
+        print("Cleaned data saved to CSV files.")
+
+    # -------------------------
+    # Run Full Cleaning Pipeline
+    # -------------------------
+    def run_full_cleaning(self):
+        """
+        Run the full cleaning pipeline for all datasets.
+
+        Steps:
+        1. Load data
+        2. Clean Teams, Skaters, and Goalies
+        3. Save cleaned data
+        """
+        self.load_data()
+        self.clean_teams()
+        self.clean_skaters("""
+File: insert_data.py
+Author: Mohammad Hassan
+Description:
+    Connects to MySQL and inserts cleaned NHL data from CSVs into
+    teams, players, and goalies tables.
+"""
+
+import pandas as pd
+import mysql.connector
+
+class NHLDataInserter:
+    def __init__(self, host="localhost", user="root", password="", database="nhl_analysis"):
+        self.conn = mysql.connector.connect(
+            host=host,
+            user=user,
+            password=password,
+            database=database
+        )
+        self.cursor = self.conn.cursor()
+        print("Connected to MySQL database successfully.")
+
+    def insert_teams(self, teams_df):
+        for _, row in teams_df.iterrows():
+            self.cursor.execute("""
+                INSERT INTO teams (
+                    team_name, GP, W, L, GF, GA, PP, PK, Shots_per_GP, SA_per_GP, FOW
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    GP=VALUES(GP),
+                    W=VALUES(W),
+                    L=VALUES(L),
+                    GF=VALUES(GF),
+                    GA=VALUES(GA),
+                    PP=VALUES(PP),
+                    PK=VALUES(PK),
+                    Shots_per_GP=VALUES(Shots_per_GP),
+                    SA_per_GP=VALUES(SA_per_GP),
+                    FOW=VALUES(FOW)
+            """, tuple(row[['Team', 'GP', 'W', 'L', 'GF', 'GA', 'PP%', 'PK%', 'Shots/GP', 'SA/GP', 'FOW%']]))
+        self.conn.commit()
+        print("Teams data inserted/updated successfully.")
+
+    def get_team_mapping(self):
+        self.cursor.execute("SELECT team_id, team_name FROM teams")
+        return {name: team_id for team_id, name in self.cursor.fetchall()}
+
+    def insert_players(self, players_df, team_mapping):
+        for _, row in players_df.iterrows():
+            team_id = team_mapping.get(row['Team'])
+            self.cursor.execute("""
+                INSERT INTO players (
+                    player_name, team_id, position, GP, G, A, P, plus_minus, PIM, S,
+                    S_percent, TOI_min, FOW_percent
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                row['Player'], team_id, row['Pos'], row['GP'], row['G'], row['A'], row['P'],
+                row['+/-'], row['PIM'], row['S'], row['S%'], row['TOI_min'], row['FOW%']
+            ))
+        self.conn.commit()
+        print("Players data inserted successfully.")
+
+    def insert_goalies(self, goalies_df, team_mapping):
+        for _, row in goalies_df.iterrows():
+            team_id = team_mapping.get(row['Team'])
+            self.cursor.execute("""
+                INSERT INTO goalies (
+                    goalie_name, team_id, GP, GS, SV_percent, GAA, GF, GA, TOI_min
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                row['Player'], team_id, row['GP'], row['GS'], row['SV%'],
+                row['GAA'], row['GF'], row['GA'], row['TOI_min']
+            ))
+        self.conn.commit()
+        print("Goalies data inserted successfully.")
+
+    def close(self):
+        self.cursor.close()
+        self.conn.close()
+        print("Database connection closed. Data insertion complete!")
+
+if __name__ == "__main__":
+    # Load CSVs
+    teams_df = pd.read_csv("Teams_clean.csv")
+    players_df = pd.read_csv("Skaters_clean.csv")
+    goalies_df = pd.read_csv("Goalies_clean.csv")
+
+    # Insert into DB
+    inserter = NHLDataInserter()
+    inserter.insert_teams(teams_df)
+    mapping = inserter.get_team_mapping()
+    inserter.insert_players(players_df, mapping)
+    inserter.insert_goalies(goalies_df, mapping)
+    inserter.close()
+
+# ==============================================================
+# File: JetsAnalysis.py
+# Project: Winnipeg Jets Performance Analysis
+# Author: [Your Name]
+# Description: Provides exploratory and comparative analysis of the
+#              Winnipeg Jets performance against league averages.
+#              Includes visualization of team, skater, and goalie metrics.
+# ==============================================================
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+import numpy as np
+
+
+class JetsAnalysis:
+    """
+    Winnipeg Jets Analysis
+
+    This class performs detailed analysis of the Winnipeg Jets'
+    team, skater, and goalie performance using cleaned NHL datasets.
+    It generates visual comparisons against league Top 10 averages
+    and produces radar charts for advanced insights.
+
+    Attributes:
+        team_name (str): The name of the team to analyze (default: "Winnipeg Jets").
+        teams (pd.DataFrame): DataFrame containing team-level stats.
+        skaters (pd.DataFrame): DataFrame containing skater-level stats.
+        goalies (pd.DataFrame): DataFrame containing goalie-level stats.
+        output_dir (str): Directory to save analysis output/visualizations.
+    """
+
+    # ---------------- Initialization ---------------- #
+    def __init__(self, team_name="Winnipeg Jets"):
+        """
+        Initialize JetsAnalysis.
+
+        Args:
+            team_name (str): Name of the team to analyze.
+        """
+        self.team_name = team_name
+        self.teams = None
+        self.skaters = None
+        self.goalies = None
+        self.output_dir = "output/eda"
+        os.makedirs(self.output_dir, exist_ok=True)
+
+    # ---------------- Data Loading ---------------- #
+    def load_data(self):
+        """Load team, skater, and goalie CSV datasets."""
+        try:
+            self.teams = pd.read_csv("Teams_clean.csv")
+            print("✅ Teams_clean.csv loaded")
+        except FileNotFoundError:
+            print("❌ Teams_clean.csv missing")
+
+        try:
+            self.skaters = pd.read_csv("Skaters_clean.csv")
+            print("✅ Skaters_clean.csv loaded")
+        except FileNotFoundError:
+            print("❌ Skaters_clean.csv missing")
+
+        try:
+            self.goalies = pd.read_csv("Goalies_clean.csv")
+            print("✅ Goalies_clean.csv loaded")
+        except FileNotFoundError:
+            print("❌ Goalies_clean.csv missing")
+
+    # ---------------- Helpers ---------------- #
+    def get_team_row(self):
+        """
+        Retrieve Winnipeg Jets row from teams DataFrame.
+
+        Handles possible mismatch between "WPG" and "Winnipeg Jets".
+        """
+        if self.teams is None:
+            return None
+        mask = (self.teams["Team"] == "WPG") | (self.teams["Team"] == "Winnipeg Jets")
+        row = self.teams[mask]
+        if row.empty:
+            print(f"⚠️ Team '{self.team_name}' not found in dataset.")
+            return None
+        return row
+
+    def add_numbers_on_bars(self, ax):
+        """Helper to annotate bar charts with numeric values."""
+        for p in ax.patches:
+            ax.annotate(f"{p.get_height():.2f}",
+                        (p.get_x() + p.get_width() / 2, p.get_height()),
+                        ha='center', va='bottom', fontsize=8)
+
+    # ---------------- Team Analysis ---------------- #
+    def compare_team_metrics(self):
+        """Compare Jets metrics vs Top 10 team averages in the league."""
+        jets_row = self.get_team_row()
+        if jets_row is None:
+            return
+
+        top10 = self.teams.nlargest(10, "P%")
+        metrics = ["GF/GP", "GA/GP", "PP%", "PK%", "Net PP%", "Net PK%",
+                   "Shots/GP", "SA/GP", "FOW%", "P%"]
+
+        comp = pd.DataFrame({
+            "Jets": [jets_row.iloc[0][m] for m in metrics],
+            "Top10 Avg": [top10[m].mean() for m in metrics]
+        }, index=metrics)
+
+        print("\n🔹 Jets vs Top 10 League Average Team Metrics:")
+        print(comp)
+
+        ax = comp.plot(kind="bar", figsize=(10, 6))
+        plt.title("Jets vs Top 10 League Averages")
+        plt.xticks(rotation=45)
+        self.add_numbers_on_bars(ax)
+        plt.tight_layout()
+        plt.savefig(f"{self.output_dir}/team_comparison.png")
+        plt.show()
+
+    def radar_team_metrics(self):
+        """Radar chart comparing Jets vs Top 10 team averages."""
+        jets_row = self.get_team_row()
+        if jets_row is None:
+            return
+
+        top10 = self.teams.nlargest(10, "P%")
+        metrics = ["GF/GP", "GA/GP", "PP%", "PK%", "Net PP%", "Net PK%",
+                   "Shots/GP", "SA/GP", "FOW%", "P%"]
+
+        jets_values = [jets_row.iloc[0][m] for m in metrics]
+        top10_avg = [top10[m].mean() for m in metrics]
+
+        # Normalize GA/GP and SA/GP (lower is better → flip sign)
+        jets_values_norm = jets_values.copy()
+        top10_avg_norm = top10_avg.copy()
+        for i, m in enumerate(metrics):
+            if m in ["GA/GP", "SA/GP"]:
+                jets_values_norm[i] = -jets_values[i]
+                top10_avg_norm[i] = -top10_avg[i]
+
+        # Radar chart setup
+        N = len(metrics)
+        angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
+        jets_values_norm += jets_values_norm[:1]
+        top10_avg_norm += top10_avg_norm[:1]
+        angles += angles[:1]
+
+        fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
+        ax.plot(angles, jets_values_norm, 'o-', linewidth=2, label='Jets')
+        ax.fill(angles, jets_values_norm, alpha=0.25)
+        ax.plot(angles, top10_avg_norm, 'o-', linewidth=2, label='Top 10 Avg')
+        ax.fill(angles, top10_avg_norm, alpha=0.25)
+        ax.set_thetagrids(np.degrees(angles[:-1]), metrics)
+        ax.set_title("Jets vs Top 10 Avg - Team Metrics Radar Chart")
+        ax.legend(loc='upper right', bbox_to_anchor=(1.1, 1.1))
+        plt.tight_layout()
+        plt.savefig(f"{self.output_dir}/team_metrics_radar.png")
+        plt.show()
+
+    # ---------------- Skater Analysis ---------------- #
+    def best_player_comparison(self, position):
+        """
+        Compare Jets' best player at a given position vs Top 10 average.
+
+        Args:
+            position (str): Player position (e.g., "C", "L", "R", "D").
+        """
+        if self.skaters is None:
+            return
+
+        pos_col = next((c for c in ["Pos", "Position", "POS"] if c in self.skaters.columns), None)
+        team_col = next((c for c in ["Team", "team"] if c in self.skaters.columns), None)
+        if pos_col is None or team_col is None:
+            print("⚠️ Skaters file missing required columns.")
+            return
+
+        jets_players = self.skaters[(self.skaters[team_col].isin(["WPG", "Winnipeg Jets"])) &
+                                    (self.skaters[pos_col] == position)]
+        if jets_players.empty:
+            print(f"⚠️ No data for position {position}")
+            return
+
+        best = jets_players.loc[jets_players["P"].idxmax()]
+        top10 = self.skaters[self.skaters[pos_col] == position].nlargest(10, "P")
+        metrics = ["P", "G", "A", "+/-"]
+
+        comp = pd.DataFrame({
+            "Jets Best": [best[m] for m in metrics],
+            "Top10 Avg": [top10[m].mean() for m in metrics]
+        }, index=metrics)
+
+        print(f"\n🔹 Jets Best {position} vs Top 10 League Average:")
+        print(comp)
+
+        ax = comp.plot(kind="bar", figsize=(8, 5))
+        plt.title(f"Jets Best {position} vs Top 10 Average")
+        plt.xticks(rotation=0)
+        self.add_numbers_on_bars(ax)
+        plt.tight_layout()
+        plt.savefig(f"{self.output_dir}/Skaters_Metrics_{position}.png")
+        plt.show()
+
+    def radar_skater_positions(self):
+        """Radar chart comparing Jets' best skaters vs Top 10 per position."""
+        if self.skaters is None:
+            return
+
+        pos_col = next((c for c in ["Pos", "Position", "POS"] if c in self.skaters.columns), None)
+        team_col = next((c for c in ["Team", "team"] if c in self.skaters.columns), None)
+        if pos_col is None or team_col is None:
+            print("⚠️ Skaters file missing required columns.")
+            return
+
+        metrics = ["P", "G", "A", "+/-"]
+        combined_data = {}
+
+        for position in ["C", "L", "R", "D"]:
+            jets_players = self.skaters[(self.skaters[team_col].isin(["WPG", "Winnipeg Jets"])) &
+                                        (self.skaters[pos_col] == position)]
+            if jets_players.empty:
+                continue
+
+            best = jets_players.loc[jets_players["P"].idxmax()]
+            top10 = self.skaters[self.skaters[pos_col] == position].nlargest(10, "P")
+
+            jets_values = [best[m] for m in metrics]
+            top10_avg = [top10[m].mean() for m in metrics]
+            combined_data[position] = (jets_values, top10_avg)
+
+            # Individual radar chart per position
+            N = len(metrics)
+            angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
+            jets_plot = jets_values + [jets_values[0]]
+            top10_plot = top10_avg + [top10_avg[0]]
+            angles_plot = angles + [angles[0]]
+
+            fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
+            ax.plot(angles_plot, jets_plot, 'o-', linewidth=2, label=f'Jets {position}')
+            ax.fill(angles_plot, jets_plot, alpha=0.25)
+            ax.plot(angles_plot, top10_plot, 'o--', linewidth=2, label=f'Top10 {position}')
+            ax.fill(angles_plot, top10_plot, alpha=0.1)
+            ax.set_thetagrids(np.degrees(angles), metrics)
+            ax.set_title(f"Jets Best {position} vs Top 10 Radar")
+            ax.legend(loc='upper right')
+            plt.tight_layout()
+            plt.savefig(f"{self.output_dir}/Skaters_Radar_{position}.png")
+            plt.show()
+
+        # Combined radar chart
+        fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
+        for position, (jets_vals, top10_vals) in combined_data.items():
+            N = len(jets_vals)
+            angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
+            jets_vals_plot = jets_vals + [jets_vals[0]]
+            top10_vals_plot = top10_vals + [top10_vals[0]]
+            angles_plot = angles + [angles[0]]
+
+            ax.plot(angles_plot, jets_vals_plot, 'o-', linewidth=2, label=f'Jets {position}')
+            ax.fill(angles_plot, jets_vals_plot, alpha=0.1)
+            ax.plot(angles_plot, top10_vals_plot, 'o--', linewidth=2, label=f'Top10 {position}')
+            ax.fill(angles_plot, top10_vals_plot, alpha=0.05)
+
+        ax.set_thetagrids(np.degrees(angles), metrics)
+        ax.set_title("Jets Best Players vs Top 10 - Combined Radar", size=14)
+        ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
+        plt.tight_layout()
+        plt.savefig(f"{self.output_dir}/Skaters_Radar_Combined.png")
+        plt.show()
+
+    # ---------------- Goalie Analysis ---------------- #
+    def goalie_comparison(self):
+        """Compare Jets' best goalie vs Top 10 league average."""
+        if self.goalies is None:
+            return
+
+        jets_goalies = self.goalies[self.goalies["Team"].isin(["WPG", "Winnipeg Jets"])]
+        if jets_goalies.empty:
+            print("⚠️ No goalie data")
+            return
+
+        sv_col, gaa_col = "Sv%", "GAA"
+        best = jets_goalies.loc[jets_goalies[sv_col].idxmax()]
+        top10 = self.goalies.nlargest(10, sv_col)
+
+        metrics = [sv_col, gaa_col]
+        comp = pd.DataFrame({
+            "Jets Best": [best[m] for m in metrics],
+            "Top10 Avg": [top10[m].mean() for m in metrics]
+        }, index=metrics)
+
+        print("\n🔹 Jets Best Goalies vs Top 10 League Average:")
+        print(comp)
+
+        ax = comp.plot(kind="bar", figsize=(8, 5), color=["skyblue", "orange"])
+        plt.title("Jets Best Goalie vs Top 10 Average")
+        plt.xticks(rotation=0)
+        plt.ylabel("Value")
+        self.add_numbers_on_bars(ax)
+        plt.tight_layout()
+        plt.savefig(f"{self.output_dir}/Goalies_Metrics.png")
+        plt.show()
+
+    # ---------------- Orchestration ---------------- #
+    def run_all(self):
+        """Run all Jets analysis methods sequentially."""
+        self.load_data()
+        self.compare_team_metrics()
+        self.radar_team_metrics()
+        for pos in ["C", "L", "R", "D"]:
+            self.best_player_comparison(pos)
+        self.goalie_comparison()
+        self.radar_skater_positions()
+
+
+# -------------------- Usage Example -------------------- #
+if __name__ == "__main__":
+    analysis = JetsAnalysis()
+    analysis.run_all()
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+
+class JetsImprovementRecommender:
+    """Analyze Winnipeg Jets weaknesses vs Top 10 NHL teams and recommend players."""
+
+    def __init__(self):
+        # Team-level stats
+        self.jets_stats = pd.DataFrame([{
+            'Team': 'Winnipeg Jets', 'GF/GP': 3.16, 'GA/GP': 2.49, 'PP%': 0.176,
+            'PK%': 0.77, 'Net PP%': 17.6, 'Net PK%': 77.0, 'Shots/GP': 29.6,
+            'FOW%': 49.0, 'P%': 0.652
+        }])
+        self.top10_avg = pd.DataFrame([{
+            'GF/GP': 3.33, 'GA/GP': 2.76, 'PP%': 0.23, 'PK%': 0.81,
+            'Net PP%': 20.71, 'Net PK%': 84.1, 'Shots/GP': 31.14,
+            'FOW%': 51.33, 'P%': 0.6456
+        }])
+
+        # Example skaters dataset
+        self.skaters = pd.DataFrame([
+            {'Player': 'Connor McDavid', 'Team': 'EDM', 'Pos': 'C', 'P': 153, 'G': 64, 'A': 89, '+/-': 22},
+            {'Player': 'Nikita Kucherov', 'Team': 'TBL', 'Pos': 'R', 'P': 144, 'G': 44, 'A': 100, '+/-': 8},
+            {'Player': 'Nathan MacKinnon', 'Team': 'COL', 'Pos': 'C', 'P': 140, 'G': 51, 'A': 89, '+/-': 35},
+            {'Player': 'Leon Draisaitl', 'Team': 'EDM', 'Pos': 'C', 'P': 128, 'G': 52, 'A': 76, '+/-': 7},
+        ])
+
+    def analyze_weaknesses(self):
+        """Identify areas where Jets are below Top 10 average."""
+        jets = self.jets_stats.iloc[0]
+        top10 = self.top10_avg.iloc[0]
+        weaknesses = {}
+        categories = ['GF/GP', 'GA/GP', 'PP%', 'PK%', 'Net PP%', 'Net PK%', 'Shots/GP', 'FOW%']
+
+        for stat in categories:
+            if stat in ['GA/GP', 'Net PK%']:  # Lower is better
+                if jets[stat] > top10[stat]:
+                    weaknesses[stat] = (jets[stat], top10[stat])
+            else:  # Higher is better
+                if jets[stat] < top10[stat]:
+                    weaknesses[stat] = (jets[stat], top10[stat])
+        return weaknesses
+
+    def recommend_players(self):
+        """Suggest top players for positions where Jets are weak."""
+        positions = ['C', 'L', 'R', 'D']
+        recommendations = {}
+        for pos in positions:
+            top_players = self.skaters[self.skaters['Pos'] == pos].sort_values(by='P', ascending=False)
+            if not top_players.empty:
+                recommendations[pos] = top_players[['Player', 'Team', 'P', 'G', 'A', '+/-']].head(3).to_dict('records')
+        return recommendations
+
+    def plot_radar(self):
+        """Visualize Jets stats vs Top 10 average using a radar chart."""
+        categories = ['GF/GP', 'GA/GP', 'PP%', 'PK%', 'Net PP%', 'Net PK%', 'Shots/GP', 'FOW%']
+        jets = self.jets_stats.iloc[0][categories].values
+        top10 = self.top10_avg.iloc[0][categories].values
+
+        # Normalize so that higher is always better
+        for i, stat in enumerate(categories):
+            if stat in ['GA/GP', 'Net PK%']:
+                jets[i] = -jets[i]
+                top10[i] = -top10[i]
+
+        angles = np.linspace(0, 2 * np.pi, len(categories), endpoint=False).tolist()
+        jets = np.concatenate((jets, [jets[0]]))
+        top10 = np.concatenate((top10, [top10[0]]))
+        angles += angles[:1]
+
+        plt.figure(figsize=(8, 8))
+        ax = plt.subplot(111, polar=True)
+        ax.plot(angles, jets, 'o-', linewidth=2, label='Winnipeg Jets')
+        ax.fill(angles, jets, alpha=0.25)
+        ax.plot(angles, top10, 'o-', linewidth=2, label='Top 10 Avg')
+        ax.fill(angles, top10, alpha=0.25)
+        ax.set_thetagrids(np.degrees(angles[:-1]), categories)
+        ax.set_title("Winnipeg Jets vs Top 10 Average Stats")
+        ax.grid(True)
+        plt.legend(loc='upper right')
+        plt.show()
+
+    def generate_report(self):
+        """Print weakness analysis, player recommendations, and plot radar chart."""
+        print("=== Winnipeg Jets Improvement Recommendations ===")
+        weaknesses = self.analyze_weaknesses()
+        if weaknesses:
+            for stat, (jets_val, top_val) in weaknesses.items():
+                print(f"- Improve {stat}: Jets at {jets_val}, Top 10 Avg {top_val}")
+        else:
+            print("- Jets exceed Top 10 average in all key metrics!")
+
+        print("\n=== Recommended Players to Add ===")
+        player_recs = self.recommend_players()
+        for pos, players in player_recs.items():
+            print(f"\nPosition {pos}:")
+            for p in players:
+                print(f"  {p['Player']} ({p['Team']}), P: {p['P']}, G: {p['G']}, A: {p['A']}, +/-: {p['+/-']}")
+
+        # Plot radar chart
+        self.plot_radar()
+
+
+# -------------------- Usage Example --------------------
+if __name__ == "__main__":
+    recommender = JetsImprovementRecommender()
+    recommender.generate_report()
+
+"""
+File: jets_stanleycup_predictor_xgb.py
+Author: Mohammad Hassan
+Description:
+    Predicts the Stanley Cup winning probability for NHL teams using XGBoost,
+    based on team, skater, and goalie statistics.
+"""
+
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from xgboost import XGBClassifier
+
+
+class JetsStanleyCupPredictorXGB:
+    """
+    Machine learning predictor for NHL Stanley Cup using XGBoost.
+
+    Attributes:
+        teams (pd.DataFrame): Team-level statistics.
+        skaters (pd.DataFrame): Skater-level statistics.
+        goalies (pd.DataFrame): Goalie-level statistics.
+        winners (pd.DataFrame): Teams that won the Stanley Cup.
+        features (pd.DataFrame): Prepared features for ML.
+        target (pd.Series): Target labels (1 if winner, 0 otherwise).
+        model (XGBClassifier): Trained XGBoost model.
+        scaler (StandardScaler): Feature scaler for ML.
+    """
+
+    # -------------------- Initialization --------------------
+    def __init__(self, teams_file, skaters_file, goalies_file, winners_file):
+        # Load datasets
+        self.teams = pd.read_csv(teams_file)
+        self.skaters = pd.read_csv(skaters_file)
+        self.goalies = pd.read_csv(goalies_file)
+        # Only read first two columns to avoid extra commas
+        self.winners = pd.read_csv(winners_file, usecols=[0, 1])
+
+        # Clean team names for consistent matching
+        self.teams['Team'] = self.teams['Team'].str.strip()
+        self.skaters['Team'] = self.skaters['Team'].str.strip()
+        self.goalies['Team'] = self.goalies['Team'].str.strip()
+        self.winners['Team'] = self.winners['Team'].str.strip()
+
+        # Prepare features and target
+        self.features, self.target = self.prepare_dataset()
+
+    # -------------------- Helper Methods --------------------
+    def get_top_skaters_stats(self, team):
+        """
+        Return stats for the best skaters at each position (C, L, R, D) for a given team.
+        Missing players default to zeros.
+        """
+        positions = ['C', 'L', 'R', 'D']
+        stats = {}
+        for pos in positions:
+            subset = self.skaters[(self.skaters['Team'] == team) & (self.skaters['Pos'] == pos)]
+            if not subset.empty:
+                best = subset.iloc[0]  # assuming sorted by overall points elsewhere
+                stats[f'{pos}_P'] = best['P']
+                stats[f'{pos}_G'] = best['G']
+                stats[f'{pos}_A'] = best['A']
+                stats[f'{pos}_PlusMinus'] = best['+/-']
+            else:
+                stats[f'{pos}_P'] = 0
+                stats[f'{pos}_G'] = 0
+                stats[f'{pos}_A'] = 0
+                stats[f'{pos}_PlusMinus'] = 0
+        return stats
+
+    def get_best_goalie_stats(self, team):
+        """
+        Return the best goalie's stats (Sv% and GAA) for a given team.
+        Defaults to zeros if no data is available.
+        """
+        subset = self.goalies[self.goalies['Team'] == team]
+        if not subset.empty:
+            best = subset.iloc[0]  # assuming sorted by Sv%
+            return {'Sv%': best['Sv%'], 'GAA': best['GAA']}
+        return {'Sv%': 0, 'GAA': 0}
+
+    # -------------------- Dataset Preparation --------------------
+    def prepare_dataset(self):
+        """
+        Combine team, skater, and goalie stats into a ML-ready dataset.
+
+        Returns:
+            features (pd.DataFrame): Feature matrix for ML.
+            target (pd.Series): Binary labels (1 if Stanley Cup winner, else 0).
+        """
+        feature_rows = []
+        target = []
+        for idx in self.teams.index:
+            team = self.teams.loc[idx, 'Team']
+            row = self.teams.loc[idx, [
+                'GF/GP', 'GA/GP', 'PP%', 'PK%', 'Net PP%', 'Net PK%',
+                'Shots/GP', 'SA/GP', 'FOW%', 'P%'
+            ]].to_dict()
+
+            # Add skater and goalie stats
+            row.update(self.get_top_skaters_stats(team))
+            row.update(self.get_best_goalie_stats(team))
+
+            feature_rows.append(row)
+            target.append(1 if team in self.winners['Team'].values else 0)
+
+        return pd.DataFrame(feature_rows), pd.Series(target)
+
+    # -------------------- Model Training --------------------
+    def train_model(self):
+        """
+        Train an XGBoost classifier to predict Stanley Cup winners.
+
+        Returns:
+            XGBClassifier: Trained model.
+        """
+        X = self.features.fillna(0)
+        y = self.target
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+
+        X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+
+        model = XGBClassifier(
+            n_estimators=200,
+            max_depth=4,
+            learning_rate=0.1,
+            use_label_encoder=False,
+            eval_metric='logloss',
+            random_state=42
+        )
+        model.fit(X_train, y_train)
+
+        # Store objects for later prediction
+        self.model = model
+        self.scaler = scaler
+        self.X_test = X_test
+        self.y_test = y_test
+
+        return model
+
+    # -------------------- Prediction --------------------
+    def predict_chances(self, team='Winnipeg Jets'):
+        """
+        Predict the Stanley Cup winning probability for a specific team.
+
+        Args:
+            team (str): Team name to predict probability for.
+
+        Returns:
+            float: Probability of winning the Stanley Cup.
+        """
+        team_row = self.teams[self.teams['Team'] == team].iloc[0]
+        row = team_row[[
+            'GF/GP', 'GA/GP', 'PP%', 'PK%', 'Net PP%', 'Net PK%',
+            'Shots/GP', 'SA/GP', 'FOW%', 'P%'
+        ]].to_dict()
+        row.update(self.get_top_skaters_stats(team))
+        row.update(self.get_best_goalie_stats(team))
+
+        X_team = pd.DataFrame([row]).fillna(0)
+        X_scaled = self.scaler.transform(X_team)
+        proba = self.model.predict_proba(X_scaled)[0][1]
+        return proba
+
+
+# -------------------- Usage Example --------------------
+if __name__ == "__main__":
+    predictor = JetsStanleyCupPredictorXGB(
+        'Teams_clean.csv',
+        'Skaters_clean.csv',
+        'Goalies_clean.csv',
+        'Winners.csv'
+    )
+    predictor.train_model()
+    jets_chance = predictor.predict_chances('Winnipeg Jets')
+    print(f"Winnipeg Jets Stanley Cup Winning Probability: {jets_chance:.2%}")
+
+"""
+File: jets_updated_squad_predictor.py
+Author: Mohammad Hassan
+Description:
+    This class predicts the Winnipeg Jets’ chances of winning the Stanley Cup
+    using historical NHL team, skater, and goalie data.
+
+    It analyzes weaknesses in the Jets’ squad compared to top-performing teams,
+    recommends players to strengthen weak areas, and estimates updated probabilities
+    using an XGBoost model.
+"""
+
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from xgboost import XGBClassifier
+
+
+class JetsUpdatedSquadPredictor:
+    """
+    JetsUpdatedSquadPredictor: Analyze Winnipeg Jets' weaknesses, recommend player upgrades,
+    and predict Stanley Cup winning probability with and without changes.
+
+    Attributes
+    ----------
+    teams : pd.DataFrame
+        DataFrame containing cleaned team stats
+    skaters : pd.DataFrame
+        DataFrame containing skater stats
+    goalies : pd.DataFrame
+        DataFrame containing goalie stats
+    winners : pd.DataFrame
+        DataFrame of Stanley Cup winners
+    team_name : str
+        The target team (default: 'Winnipeg Jets')
+    scaler : StandardScaler
+        Fitted sklearn scaler for feature scaling
+    model : XGBClassifier
+        Trained XGBoost classification model
+    features : pd.DataFrame
+        Feature dataset prepared from teams, skaters, goalies
+    target : pd.Series
+        Binary target: 1 if Stanley Cup winner, else 0
+    """
+
+    # -------------------------
+    # Initialization
+    # -------------------------
+    def __init__(self, teams_file: str, skaters_file: str, goalies_file: str, winners_file: str):
+        """
+        Initialize JetsUpdatedSquadPredictor with dataset file paths.
+
+        Parameters
+        ----------
+        teams_file : str
+            Path to Teams CSV file
+        skaters_file : str
+            Path to Skaters CSV file
+        goalies_file : str
+            Path to Goalies CSV file
+        winners_file : str
+            Path to Stanley Cup Winners CSV file
+        """
+        # Load datasets
+        self.teams = pd.read_csv(teams_file)
+        self.skaters = pd.read_csv(skaters_file)
+        self.goalies = pd.read_csv(goalies_file)
+        self.winners = pd.read_csv(winners_file, usecols=[0, 1])
+
+        # Clean team names
+        for df in [self.teams, self.skaters, self.goalies, self.winners]:
+            df['Team'] = df['Team'].str.strip()
+
+        self.team_name = "Winnipeg Jets"
+        self.scaler = None
+        self.model = None
+
+        # Prepare features and target
+        self.features, self.target = self._prepare_dataset()
+
+    # -------------------------
+    # Helper Methods
+    # -------------------------
+    def _get_top_skaters_stats(self, team: str) -> dict:
+        """
+        Extract best skater stats (C, L, R, D) for a given team.
+        """
+        positions = ['C', 'L', 'R', 'D']
+        stats = {}
+        for pos in positions:
+            subset = self.skaters[(self.skaters['Team'] == team) & (self.skaters['Pos'] == pos)]
+            if not subset.empty:
+                best = subset.nlargest(1, 'P').iloc[0]
+                stats[f'{pos}_P'] = best['P']
+                stats[f'{pos}_G'] = best['G']
+                stats[f'{pos}_A'] = best['A']
+                stats[f'{pos}_PlusMinus'] = best['+/-']
+            else:
+                stats[f'{pos}_P'] = 0
+                stats[f'{pos}_G'] = 0
+                stats[f'{pos}_A'] = 0
+                stats[f'{pos}_PlusMinus'] = 0
+        return stats
+
+    def _get_best_goalie_stats(self, team: str) -> dict:
+        """
+        Extract best goalie stats for a given team.
+        """
+        subset = self.goalies[self.goalies['Team'] == team]
+        if not subset.empty:
+            best = subset.iloc[0]  # assume sorted by save percentage
+            return {'Sv%': best['Sv%'], 'GAA': best['GAA']}
+        return {'Sv%': 0, 'GAA': 0}
+
+    # -------------------------
+    # Dataset Preparation
+    # -------------------------
+    def _prepare_dataset(self):
+        """
+        Combine team, skater, and goalie stats into features and target labels.
+        """
+        feature_rows = []
+        target = []
+        for idx in self.teams.index:
+            team = self.teams.loc[idx, 'Team']
+
+            # base team stats
+            row = self.teams.loc[idx, [
+                'GF/GP', 'GA/GP', 'PP%', 'PK%', 'Net PP%', 'Net PK%',
+                'Shots/GP', 'SA/GP', 'FOW%', 'P%'
+            ]].to_dict()
+
+            # add skater & goalie stats
+            row.update(self._get_top_skaters_stats(team))
+            row.update(self._get_best_goalie_stats(team))
+
+            feature_rows.append(row)
+            target.append(1 if team in self.winners['Team'].values else 0)
+
+        return pd.DataFrame(feature_rows), pd.Series(target)
+
+    # -------------------------
+    # Model Training
+    # -------------------------
+    def train_model(self):
+        """
+        Train XGBoost classifier on historical NHL data.
+        """
+        X = self.features.fillna(0)
+        y = self.target
+        self.scaler = StandardScaler()
+        X_scaled = self.scaler.fit_transform(X)
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_scaled, y, test_size=0.2, random_state=42
+        )
+
+        self.model = XGBClassifier(
+            n_estimators=200,
+            max_depth=4,
+            learning_rate=0.1,
+            eval_metric='logloss',
+            random_state=42
+        )
+        self.model.fit(X_train, y_train)
+        print("✅ Model trained successfully.")
+
+    # -------------------------
+    # Weakness Analysis
+    # -------------------------
+    def analyze_weaknesses(self) -> dict:
+        """
+        Identify Jets' weaknesses compared to Top 10 teams.
+        """
+        jets_stats = self.teams[self.teams['Team'] == self.team_name].iloc[0]
+        top10_avg = self.teams.nlargest(10, 'P%')[
+            ['GF/GP', 'GA/GP', 'PP%', 'PK%', 'Net PP%', 'Net PK%', 'Shots/GP', 'FOW%']
+        ].mean()
+
+        weaknesses = {}
+        for stat in top10_avg.index:
+            if stat in ['GA/GP', 'Net PK%']:  # lower is better
+                if jets_stats[stat] > top10_avg[stat]:
+                    weaknesses[stat] = (jets_stats[stat], top10_avg[stat])
+            else:  # higher is better
+                if jets_stats[stat] < top10_avg[stat]:
+                    weaknesses[stat] = (jets_stats[stat], top10_avg[stat])
+        return weaknesses
+
+    # -------------------------
+    # Player Recommendations
+    # -------------------------
+    def recommend_players(self) -> dict:
+        """
+        Recommend top players (C, L, R, D) across NHL to improve Jets' weaknesses.
+        """
+        recs = {}
+        positions = ['C', 'L', 'R', 'D']
+        for pos in positions:
+            top_players = self.skaters[self.skaters['Pos'] == pos].nlargest(3, 'P')
+            recs[pos] = top_players[['Player', 'Team', 'P', 'G', 'A', '+/-']].to_dict('records')
+        return recs
+
+    # -------------------------
+    # Team Update Simulation
+    # -------------------------
+    def update_team_stats_with_recommendations(self) -> pd.DataFrame:
+        """
+        Simulate Jets’ stats improvement after adding recommended players.
+        """
+        jets_row = self.features.loc[
+            self.teams[self.teams['Team'] == self.team_name].index[0]
+        ].copy()
+
+        weaknesses = self.analyze_weaknesses()
+        for stat, (_, top_val) in weaknesses.items():
+            improvement = 0.015 * top_val  # apply 1.5% improvement
+            jets_row.loc[stat] += improvement
+
+        return pd.DataFrame([jets_row])
+
+    # -------------------------
+    # Probability Prediction
+    # -------------------------
+    def predict_stanley_chance(self) -> tuple:
+        """
+        Predict Stanley Cup winning probability before and after recommendations.
+        """
+        # Current probability
+        jets_row = self.features.loc[
+            self.teams[self.teams['Team'] == self.team_name].index[0]
+        ].copy()
+        original_proba = self.model.predict_proba(
+            self.scaler.transform([jets_row.fillna(0)])
+        )[0][1]
+
+        # Improved probability
+        updated_row = self.update_team_stats_with_recommendations()
+        updated_proba = self.model.predict_proba(
+            self.scaler.transform(updated_row.fillna(0))
+        )[0][1]
+
+        return original_proba, updated_proba
+
+    # -------------------------
+    # Full Report
+    # -------------------------
+    def generate_report(self):
+        """
+        Generate and print Jets' weaknesses, recommended players,
+        and winning probability improvement.
+        """
+        print("=== Jets Weaknesses ===")
+        for stat, (jets_val, top_val) in self.analyze_weaknesses().items():
+            print(f"- {stat}: Jets at {jets_val}, Top10 Avg {top_val}")
+
+        print("\n=== Recommended Players to Improve Squad ===")
+        for pos, players in self.recommend_players().items():
+            print(f"\nPosition {pos}:")
+            for p in players:
+                print(f"  {p['Player']} ({p['Team']}), P: {p['P']}, G: {p['G']}, A: {p['A']}, +/-: {p['+/-']}")
+
+        original, improved = self.predict_stanley_chance()
+        print(f"\n✅ Predicted Stanley Cup Winning Probability:")
+        print(f"- Current squad: {original:.2%}")
+        print(f"- With recommended players: {improved:.2%}")
+
+
+# -------------------------
+# Usage Example
+# -------------------------
+if __name__ == "__main__":
+    predictor = JetsUpdatedSquadPredictor(
+        teams_file="Teams_clean.csv",
+        skaters_file="Skaters_clean.csv",
+        goalies_file="Goalies_clean.csv",
+        winners_file="Winners.csv"
+    )
+    predictor.train_model()
+    predictor.generate_report()
+
+import pandas as pd
+
+class JetsWeaknessAnalyzer:
+    """
+    Analyze Winnipeg Jets weaknesses compared to the top 10 NHL teams.
+
+    Methods:
+        compare_team_metrics(): Compares Jets team stats vs top 10 average.
+        compare_goalies(): Compares Jets best goalie vs top 10 average.
+        compare_skaters(): Compares Jets best skaters by position vs top 10 average.
+        generate_report(): Prints detailed insights of weaknesses.
+    """
+
+    def __init__(self, teams_file, skaters_file, goalies_file):
+        # Load datasets
+        self.teams = pd.read_csv(teams_file)
+        self.skaters = pd.read_csv(skaters_file)
+        self.goalies = pd.read_csv(goalies_file)
+
+        # Define Jets team names for each dataset
+        self.jets_name_team = "Winnipeg Jets"
+        self.jets_name_skaters = "WPG"
+        self.jets_name_goalies = "WPG"
+
+        print("✅ Teams, skaters, and goalies datasets loaded.")
+
+    # -------------------- Team-level comparison --------------------
+    def compare_team_metrics(self):
+        """Compare Jets team metrics vs top 10 average."""
+        jets_stats = self.teams[self.teams['Team'] == self.jets_name_team]
+        if jets_stats.empty:
+            print(f"⚠️ No team stats found for {self.jets_name_team}")
+            return pd.DataFrame()
+
+        jets_stats = jets_stats.iloc[0]
+        numeric_cols = self.teams.select_dtypes(include='number').columns
+
+        # Top 10 teams by points %
+        top10 = self.teams.sort_values('P%', ascending=False).head(10)
+        top10_avg = top10[numeric_cols].mean()
+
+        comparison = pd.DataFrame({
+            'Jets': jets_stats[numeric_cols],
+            'Top10 Avg': top10_avg
+        })
+        return comparison
+
+    # -------------------- Goalie comparison --------------------
+    def compare_goalies(self):
+        """Compare Jets best goalie vs top 10 goalies."""
+        jets_goalie = self.goalies[self.goalies['Team'] == self.jets_name_goalies]
+        if jets_goalie.empty:
+            print(f"⚠️ No goalies found for team '{self.jets_name_goalies}'")
+            return pd.DataFrame()
+
+        jets_goalie = jets_goalie.iloc[0]
+        top10_goalies = self.goalies.sort_values('Sv%', ascending=False).head(10)
+        top10_avg = top10_goalies[['Sv%', 'GAA']].mean()
+
+        comparison = pd.DataFrame({
+            'Jets Best': jets_goalie[['Sv%', 'GAA']],
+            'Top10 Avg': top10_avg
+        })
+        return comparison
+
+    # -------------------- Skater comparison --------------------
+    def compare_skaters(self):
+        """Compare Jets best skaters by position vs top 10 average."""
+        positions = ['C', 'L', 'R', 'D']
+        skater_report = {}
+
+        for pos in positions:
+            jets_pos = self.skaters[
+                (self.skaters['Team'] == self.jets_name_skaters) &
+                (self.skaters['Pos'] == pos)
+            ]
+
+            if jets_pos.empty:
+                skater_report[pos] = None
+                continue
+
+            best_player = jets_pos.nlargest(1, 'P').iloc[0]
+            top10 = self.skaters[self.skaters['Pos'] == pos].nlargest(10, 'P')
+            top10_avg = top10[['P', 'G', 'A', '+/-']].mean()
+
+            skater_report[pos] = {
+                'Jets Best': best_player[['P', 'G', 'A', '+/-']],
+                'Top10 Avg': top10_avg
+            }
+
+        return skater_report
+
+    # -------------------- Generate full report --------------------
+    def generate_report(self):
+        """Print full Jets weaknesses report."""
+        print("\n🔹 Jets vs Top 10 League Average Team Metrics:")
+        team_metrics = self.compare_team_metrics()
+        if not team_metrics.empty:
+            print(team_metrics)
+            print("\n✅ Team-level insights:")
+            for col in team_metrics.index:
+                if team_metrics.loc[col, 'Jets'] < team_metrics.loc[col, 'Top10 Avg']:
+                    print(f"- Jets are weaker in {col}")
+
+        print("\n🔹 Jets Best Goalies vs Top 10 League Average:")
+        goalies_metrics = self.compare_goalies()
+        if not goalies_metrics.empty:
+            print(goalies_metrics)
+            for col in goalies_metrics.index:
+                if goalies_metrics.loc[col, 'Jets Best'] < goalies_metrics.loc[col, 'Top10 Avg']:
+                    print(f"- Jets goalie is weaker in {col}")
+
+        print("\n🔹 Jets Best Skaters vs Top 10 League Average:")
+        skaters_metrics = self.compare_skaters()
+        for pos, data in skaters_metrics.items():
+            print(f"{pos}:")
+            if data is None:
+                print(f"- No top {pos} player found for Jets\n")
+            else:
+                print(f"Jets Best:\n{data['Jets Best']}")
+                print(f"Top10 Avg:\n{data['Top10 Avg']}\n")
+                for col in data['Jets Best'].index:
+                    if data['Jets Best'][col] < data['Top10 Avg'][col]:
+                        print(f"- Jets {pos} is weaker in {col}")
+                print()
+
+
+# -------------------- Usage Example --------------------
+if __name__ == "__main__":
+    analyzer = JetsWeaknessAnalyzer('Teams_clean.csv', 'Skaters_clean.csv', 'Goalies_clean.csv')
+    analyzer.generate_report()
+
+Player,Season,Team,S/C,GP,GS,CG,IG,CG%,GS > .900,GS > .900 %,GF,GA,GFA,GAA,ROW,ROL,SA/60,Sv%,TOI,TOI_min
+Juuse Saros,20232024,NSH,L,64,64,56,8,87.5,34,53.1,187,173,3.1,2.86,33,29,30.5,0.906,,
+Juuse Saros,20222023,NSH,L,64,63,62,1,98.4,41,65.1,163,171,2.57,2.69,28,28,33.1,0.919,,
+Connor Hellebuyck,20222023,WPG,L,64,64,61,3,95.3,43,67.2,187,157,2.97,2.49,37,26,31.2,0.92,,
+Andrei Vasilevskiy,20242025,TBL,L,63,63,62,1,98.4,39,61.9,213,136,3.41,2.18,36,24,27.5,0.921,,
+Connor Hellebuyck,20242025,WPG,L,63,62,62,0,100,44,71,211,125,3.38,2.0,46,14,26.7,0.925,,
+Ilya Sorokin,20222023,NYI,L,62,60,59,1,98.3,42,70,177,140,2.96,2.34,30,25,30.7,0.924,,
+Jake Oettinger,20222023,DAL,L,62,61,58,3,95.1,39,63.9,199,144,3.28,2.37,33,20,29.2,0.919,,
+Sam Montembeault,20242025,MTL,L,62,60,55,5,91.7,32,53.3,174,166,2.95,2.82,30,28,28.5,0.902,,
+Ilya Sorokin,20242025,NYI,L,61,60,55,5,91.7,36,60,163,158,2.8,2.71,29,29,29.1,0.907,,
+Jordan Binnington,20222023,STL,L,61,60,56,4,93.3,30,50,188,194,3.21,3.31,25,31,31.2,0.894,,
+
+"""
+File: nhl_advanced_analytics.py
+Author: Mohammad Hassan
+Description:
+    Provides advanced analytics for NHL data, including correlation heatmaps,
+    player clustering using KMeans, PCA-based visualizations, and cluster summaries.
+"""
+
+import os
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+
+
+class NHLAdvancedAnalytics:
+    """
+    Perform advanced analytics on NHL datasets (skaters, goalies, teams).
+
+    Features:
+        - Load and preprocess datasets
+        - Generate correlation heatmaps
+        - Perform KMeans clustering on skaters and goalies
+        - Reduce dimensionality with PCA and visualize clusters
+        - Provide team and player cluster summaries
+
+    Attributes:
+        skaters_path (str): Path to skaters CSV.
+        goalies_path (str): Path to goalies CSV.
+        teams_path (str): Path to teams CSV.
+        output_dir (str): Directory to save outputs.
+        skaters (pd.DataFrame): Skaters dataset.
+        goalies (pd.DataFrame): Goalies dataset.
+        teams (pd.DataFrame): Teams dataset.
+    """
+
+    # -------------------- Initialization --------------------
+    def __init__(self, skaters_path, goalies_path, teams_path, output_dir="output"):
+        self.skaters_path = skaters_path
+        self.goalies_path = goalies_path
+        self.teams_path = teams_path
+        self.output_dir = output_dir
+        os.makedirs(self.output_dir, exist_ok=True)
+
+        self.skaters = None
+        self.goalies = None
+        self.teams = None
+
+    # -------------------- Data Loading --------------------
+    def load_datasets(self):
+        """Load NHL skaters, goalies, and teams datasets from CSV files."""
+        self.skaters = pd.read_csv(self.skaters_path)
+        self.goalies = pd.read_csv(self.goalies_path)
+        self.teams = pd.read_csv(self.teams_path)
+        print("✅ Datasets loaded for advanced analytics.")
+
+    # -------------------- Correlation Analysis --------------------
+    def team_correlation_heatmap(self):
+        """Generate and save a correlation heatmap of team-level statistics."""
+        numeric_cols = self.teams.select_dtypes(include=np.number)
+        corr = numeric_cols.corr()
+
+        plt.figure(figsize=(12, 8))
+        sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f")
+        plt.title("Team Statistics Correlation Heatmap")
+        plt.tight_layout()
+
+        heatmap_path = os.path.join(self.output_dir, "team_correlation_heatmap.png")
+        plt.savefig(heatmap_path)
+        plt.close()
+        print(f"✅ Team correlation heatmap saved at {heatmap_path}.")
+
+    # -------------------- Player Clustering --------------------
+    def cluster_players(self, df, n_clusters=4, metrics=None, output_file="clusters.csv"):
+        """
+        Cluster players (skaters or goalies) using KMeans and visualize with PCA.
+
+        Args:
+            df (pd.DataFrame): Dataframe of players.
+            n_clusters (int): Number of clusters.
+            metrics (list[str], optional): Metrics to use for clustering.
+            output_file (str): File name to save clustered data.
+
+        Returns:
+            pd.DataFrame: Dataframe with assigned cluster labels.
+        """
+        if metrics is None:
+            if "G" in df.columns:  # Skaters
+                metrics = ["G", "A", "P", "+/-", "S%", "TOI_min", "FOW%"]
+            else:  # Goalies
+                metrics = ["GAA", "GS", "TOI_min"]
+
+        df_copy = df.copy()
+        metrics = [m for m in metrics if m in df_copy.columns]
+        X = df_copy[metrics]
+
+        # Drop columns that are all NaN
+        X = X.dropna(axis=1, how="all")
+
+        # Impute NaNs with column mean
+        imputer = SimpleImputer(strategy="mean")
+        X_imputed = imputer.fit_transform(X)
+
+        # Standardize features
+        X_scaled = StandardScaler().fit_transform(X_imputed)
+
+        # Apply KMeans
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+        labels = kmeans.fit_predict(X_scaled)
+        df_copy["Cluster"] = labels
+
+        # Save clustering results
+        cluster_path = os.path.join(self.output_dir, output_file)
+        df_copy.to_csv(cluster_path, index=False)
+        print(f"✅ Clustering done with {n_clusters} clusters. Results saved at {cluster_path}.")
+
+        # PCA visualization
+        pca = PCA(n_components=2)
+        components = pca.fit_transform(X_scaled)
+
+        plt.figure(figsize=(10, 6))
+        sns.scatterplot(x=components[:, 0], y=components[:, 1], hue=labels, palette="tab10")
+        plt.title(f"Player Clusters (PCA 2D) - {n_clusters} Clusters")
+        plt.xlabel("PCA Component 1")
+        plt.ylabel("PCA Component 2")
+        plt.legend(title="Cluster")
+        plt.tight_layout()
+
+        pca_path = os.path.join(self.output_dir, output_file.replace(".csv", "_pca.png"))
+        plt.savefig(pca_path)
+        plt.show()
+        print(f"✅ PCA cluster plot saved at {pca_path}.")
+
+        return df_copy
+
+    # -------------------- Cluster Summary --------------------
+    def team_cluster_summary(self, clustered_df, player_type="Skater", top_n=5):
+        """
+        Print and save a summary of clusters for skaters or goalies.
+
+        Args:
+            clustered_df (pd.DataFrame): Clustered players dataframe.
+            player_type (str): "Skater" or "Goalie".
+            top_n (int): Number of players to display from each cluster.
+        """
+        print(f"\n✅ Clustering Summary for {player_type}:")
+
+        for cluster in sorted(clustered_df["Cluster"].unique()):
+            cluster_df = clustered_df[clustered_df["Cluster"] == cluster]
+            print(f"\nCluster {cluster} ({len(cluster_df)} players):")
+
+            if player_type.lower() == "skater":
+                display_cols = ["G", "A", "P", "+/-", "S%", "TOI_min", "FOW%", "Player", "Team"]
+            else:
+                display_cols = ["GAA", "GS", "TOI_min", "Player", "Team"]
+
+            print(cluster_df[display_cols].head(top_n))
+
+        # Save cluster summary
+        summary_path = os.path.join(self.output_dir, f"{player_type.lower()}_cluster_summary.csv")
+        clustered_df.to_csv(summary_path, index=False)
+        print(f"\n✅ Team cluster summary saved at {summary_path}.")
+
+    # -------------------- Full Workflow --------------------
+    def run_all(self):
+        """Run the full advanced analytics workflow end-to-end."""
+        self.load_datasets()
+        self.team_correlation_heatmap()
+
+        skaters_clustered = self.cluster_players(df=self.skaters, n_clusters=4, output_file="skaters_clusters.csv")
+        self.team_cluster_summary(skaters_clustered, player_type="Skater")
+
+        goalies_clustered = self.cluster_players(df=self.goalies, n_clusters=3, output_file="goalies_clusters.csv")
+        self.team_cluster_summary(goalies_clustered, player_type="Goalie")
+
+
+# -------------------- Usage Example --------------------
+if __name__ == "__main__":
+    analytics = NHLAdvancedAnalytics(
+        skaters_path="Skaters_clean.csv",
+        goalies_path="Goalies_clean.csv",
+        teams_path="Teams_clean.csv"
+    )
+    analytics.run_all()
+
+"""
+File: nhl_sql_manager.py
+Author: Mohammad Hassan
+Description:
+    NHLSQLManager: A reusable Python class to manage MySQL database operations
+    for NHL Analytics Project. Supports connecting, inserting, querying, and updating
+    data for teams, skaters, and goalies.
+"""
+
+import mysql.connector
+import pandas as pd
+
+
+class NHLSQLManager:
+    """
+    NHLSQLManager handles all MySQL database operations for NHL Analytics.
+
+    Attributes
+    ----------
+    host : str
+        MySQL host (default 'localhost')
+    user : str
+        MySQL username
+    password : str
+        MySQL password
+    database : str
+        Database name
+    conn : mysql.connector.connection.MySQLConnection
+        Active database connection
+    cursor : mysql.connector.cursor.MySQLCursor
+        Active database cursor
+    """
+
+    # -------------------------
+    # Initialization
+    # -------------------------
+    def __init__(self, host='localhost', user='root', password='', database='nhl_analysis'):
+        self.host = host
+        self.user = user
+        self.password = password
+        self.database = database
+        self.conn = None
+        self.cursor = None
+
+    # -------------------------
+    # Connection Methods
+    # -------------------------
+    def connect(self):
+        """Connect to the MySQL server and select database."""
+        self.conn = mysql.connector.connect(
+            host=self.host,
+            user=self.user,
+            password=self.password,
+            database=self.database
+        )
+        self.cursor = self.conn.cursor()
+        print(f"Connected to database '{self.database}' successfully.")
+
+    def close(self):
+        """Close the MySQL connection."""
+        if self.cursor:
+            self.cursor.close()
+        if self.conn:
+            self.conn.close()
+        print("MySQL connection closed.")
+
+    # -------------------------
+    # Insert Methods
+    # -------------------------
+    def insert_dataframe(self, df: pd.DataFrame, table_name: str, replace_nan_with_null=True):
+        """
+        Insert a pandas DataFrame into a MySQL table.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            The DataFrame to insert
+        table_name : str
+            Target table in MySQL
+        replace_nan_with_null : bool
+            Replace NaN with NULL in SQL insert (default True)
+        """
+        # Replace NaN with None for SQL compatibility
+        if replace_nan_with_null:
+            df = df.where(pd.notnull(df), None)
+
+        # Prepare SQL query
+        cols = ", ".join(f"`{c}`" for c in df.columns)
+        placeholders = ", ".join(["%s"] * len(df.columns))
+        sql = f"INSERT INTO {table_name} ({cols}) VALUES ({placeholders})"
+
+        # Execute insertion row by row
+        for row in df.itertuples(index=False, name=None):
+            self.cursor.execute(sql, row)
+        self.conn.commit()
+        print(f"Inserted {len(df)} rows into table '{table_name}'.")
+
+    # -------------------------
+    # Query Methods
+    # -------------------------
+    def query(self, sql_query: str):
+        """
+        Execute a SELECT query and return a pandas DataFrame.
+
+        Parameters
+        ----------
+        sql_query : str
+            SQL SELECT query
+
+        Returns
+        -------
+        pd.DataFrame
+        """
+        self.cursor.execute(sql_query)
+        cols = [desc[0] for desc in self.cursor.description]
+        data = self.cursor.fetchall()
+        return pd.DataFrame(data, columns=cols)
+
+    # -------------------------
+    # Update Methods
+    # -------------------------
+    def update(self, sql_update: str, params=None):
+        """
+        Execute an UPDATE or DELETE query.
+
+        Parameters
+        ----------
+        sql_update : str
+            SQL UPDATE or DELETE query
+        params : tuple, optional
+            Parameters to pass to query
+        """
+        self.cursor.execute(sql_update, params)
+        self.conn.commit()
+        print(f"Query executed successfully. Rows affected: {self.cursor.rowcount}")
+
+    # -------------------------
+    # Utility Methods
+    # -------------------------
+    def create_database(self):
+        """Create the database if it does not exist."""
+        self.cursor.execute(f"CREATE DATABASE IF NOT EXISTS {self.database}")
+        self.conn.commit()
+        print(f"Database '{self.database}' ensured to exist.")
+
+    def show_tables(self):
+        """Return list of tables in the database."""
+        self.cursor.execute("SHOW TABLES")
+        return [t[0] for t in self.cursor.fetchall()]
+
+# ==============================================================
+# File: NHLEDA.py
+# Project: NHL Exploratory Data Analysis (NHLEDA)
+# Author: [Your Name]
+# Description: Provides exploratory data analysis (EDA) methods
+#              for NHL skaters, goalies, and teams using cleaned
+#              datasets. Includes visualization utilities.
+# ==============================================================
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+
+class NHLEDA:
+    """
+    NHL Exploratory Data Analysis (EDA)
+
+    This class performs exploratory analysis on skater, goalie,
+    and team datasets. It provides functions to rank top players,
+    compare team statistics, and visualize performance metrics.
+
+    Attributes:
+        skaters (pd.DataFrame): DataFrame containing skater statistics.
+        goalies (pd.DataFrame): DataFrame containing goalie statistics.
+        teams (pd.DataFrame): DataFrame containing team statistics.
+    """
+
+    # ---------------- Initialization ---------------- #
+    def __init__(self, skaters_file="Skaters_clean.csv",
+                 goalies_file="Goalies_clean.csv",
+                 teams_file="Teams_clean.csv"):
+        """
+        Initialize NHLEDA by loading skaters, goalies, and teams datasets.
+
+        Args:
+            skaters_file (str): Path to cleaned skaters CSV file.
+            goalies_file (str): Path to cleaned goalies CSV file.
+            teams_file (str): Path to cleaned teams CSV file.
+        """
+        self.skaters = pd.read_csv(skaters_file)
+        self.goalies = pd.read_csv(goalies_file)
+        self.teams = pd.read_csv(teams_file)
+
+        print("✅ Datasets loaded for EDA.")
+
+    # ---------------- Skaters Analysis ---------------- #
+    def top_scorers(self, n=10):
+        """Display and plot the top N point scorers."""
+        top = (
+            self.skaters.groupby("Player")["P"]
+            .sum()
+            .sort_values(ascending=False)
+            .head(n)
+        )
+        print(f"\n🔹 Top {n} Scorers:\n", top)
+        self._plot_barh(top, f"Top {n} Scorers", "Total Points", "Player")
+
+    def top_goal_scorers(self, n=10):
+        """Display and plot the top N goal scorers."""
+        top = (
+            self.skaters.groupby("Player")["G"]
+            .sum()
+            .sort_values(ascending=False)
+            .head(n)
+        )
+        print(f"\n🔹 Top {n} Goal Scorers:\n", top)
+        self._plot_barh(top, f"Top {n} Goal Scorers", "Goals", "Player")
+
+    def top_assist_leaders(self, n=10):
+        """Display and plot the top N assist leaders."""
+        top = (
+            self.skaters.groupby("Player")["A"]
+            .sum()
+            .sort_values(ascending=False)
+            .head(n)
+        )
+        print(f"\n🔹 Top {n} Assist Leaders:\n", top)
+        self._plot_barh(top, f"Top {n} Assist Leaders", "Assists", "Player")
+
+    def best_plus_minus(self, n=10):
+        """Display and plot the top N players with the best +/- rating."""
+        top = (
+            self.skaters.groupby("Player")["+/-"]
+            .sum()
+            .sort_values(ascending=False)
+            .head(n)
+        )
+        print(f"\n🔹 Top {n} +/− Players:\n", top)
+        self._plot_barh(top, f"Top {n} +/− Players", "+/− Rating", "Player")
+
+    # ---------------- Goalies Analysis ---------------- #
+    def best_goalies_sv(self, n=10):
+        """Display and plot the top N goalies by save percentage."""
+        top = (
+            self.goalies.groupby("Player")["Sv%"]
+            .mean()
+            .sort_values(ascending=False)
+            .head(n)
+        )
+        print(f"\n🔹 Top {n} Goalies by Save %:\n", top)
+        self._plot_barh(top, f"Top {n} Goalies by Save %", "Save %", "Goalie")
+
+    def best_goalies_gaa(self, n=10):
+        """Display and plot the top N goalies by lowest goals against average (GAA)."""
+        top = (
+            self.goalies.groupby("Player")["GAA"]
+            .mean()
+            .sort_values()
+            .head(n)
+        )
+        print(f"\n🔹 Top {n} Goalies by Lowest GAA:\n", top)
+        self._plot_barh(top, f"Top {n} Goalies by Lowest GAA", "GAA", "Goalie")
+
+    def most_wins_goalies(self, top_n=10):
+        """
+        Display and plot the top N goalies with the most wins.
+        Handles both "W" and "Wins" columns.
+        """
+        if "W" in self.goalies.columns:
+            top_wins = (
+                self.goalies.groupby("Player")["W"]
+                .sum()
+                .sort_values(ascending=False)
+                .head(top_n)
+            )
+            print("\n🔹 Top 10 Goalies by Wins:\n", top_wins)
+            self.plot_barh(top_wins, "Top Goalies by Wins")
+
+        elif "Wins" in self.goalies.columns:
+            top_wins = (
+                self.goalies.groupby("Player")["Wins"]
+                .sum()
+                .sort_values(ascending=False)
+                .head(top_n)
+            )
+            print("\n🔹 Top 10 Goalies by Wins:\n", top_wins)
+            self.plot_barh(top_wins, "Top Goalies by Wins")
+
+        else:
+            print("\n⚠️ No Wins column found in goalie dataset.")
+
+    # ---------------- Teams Analysis ---------------- #
+    def best_goal_diff(self, n=10):
+        """Display and plot the top N teams by goal differential."""
+        self.teams["Goal_Diff"] = self.teams["GF"] - self.teams["GA"]
+        top = self.teams.sort_values("Goal_Diff", ascending=False).head(n)
+
+        print(f"\n🔹 Top {n} Teams by Goal Differential:\n",
+              top[["Team", "GF", "GA", "Goal_Diff"]])
+
+        self._plot_barh_df(top, "Team", "Goal_Diff",
+                           f"Top {n} Teams by Goal Differential")
+
+    def best_power_play(self, n=10):
+        """Display and plot the top N teams by power play percentage."""
+        top = self.teams.sort_values("PP%", ascending=False).head(n)
+
+        print(f"\n🔹 Top {n} Teams by Power Play %:\n",
+              top[["Team", "PP%"]])
+
+        self._plot_barh_df(top, "Team", "PP%", f"Top {n} Teams by Power Play %")
+
+    def best_penalty_kill(self, n=10):
+        """Display and plot the top N teams by penalty kill percentage."""
+        top = self.teams.sort_values("PK%", ascending=False).head(n)
+
+        print(f"\n🔹 Top {n} Teams by Penalty Kill %:\n",
+              top[["Team", "PK%"]])
+
+        self._plot_barh_df(top, "Team", "PK%", f"Top {n} Teams by Penalty Kill %")
+
+    def best_faceoff(self, n=10):
+        """Display and plot the top N teams by faceoff win percentage."""
+        top = self.teams.sort_values("FOW%", ascending=False).head(n)
+
+        print(f"\n🔹 Top {n} Teams by Faceoff %:\n",
+              top[["Team", "FOW%"]])
+
+        self._plot_barh_df(top, "Team", "FOW%",
+                           f"Top {n} Teams by Faceoff %")
+
+    # ---------------- Helper Methods ---------------- #
+    def _plot_barh(self, series, title, xlabel, ylabel):
+        """Helper function to plot horizontal bar charts from a Series."""
+        plt.figure(figsize=(10, 6))
+        ax = sns.barplot(y=series.index, x=series.values, palette="Blues_r")
+        for i, v in enumerate(series.values):
+            ax.text(v, i, f"{v:.2f}" if isinstance(v, float) else str(v),
+                    va="center", ha="left", fontsize=10)
+        plt.title(title, fontsize=16)
+        plt.xlabel(xlabel, fontsize=14)
+        plt.ylabel(ylabel, fontsize=14)
+        plt.tight_layout()
+        plt.show()
+
+    def _plot_barh_df(self, df, y_col, x_col, title):
+        """Helper function to plot horizontal bar charts from a DataFrame."""
+        plt.figure(figsize=(10, 6))
+        ax = sns.barplot(y=y_col, x=x_col, data=df, palette="viridis")
+        for i, v in enumerate(df[x_col]):
+            ax.text(v, i, f"{v:.2f}" if isinstance(v, float) else str(v),
+                    va="center", ha="left", fontsize=10)
+        plt.title(title, fontsize=16)
+        plt.xlabel(x_col, fontsize=14)
+        plt.ylabel(y_col, fontsize=14)
+        plt.tight_layout()
+        plt.show()
+
+
+# -------------------- Usage Example -------------------- #
+if __name__ == "__main__":
+    eda = NHLEDA()
+    eda.top_scorers()
+    eda.top_goal_scorers()
+    eda.top_assist_leaders()
+    eda.best_plus_minus()
+    eda.best_goalies_sv()
+    eda.best_goalies_gaa()
+    eda.most_wins_goalies()
+    eda.best_goal_diff()
+    eda.best_power_play()
+    eda.best_penalty_kill()
+    eda.best_faceoff()
+)
+        self.clean_goalies()
+        self.save_cleaned_data()
+        print("Full data cleaning pipeline completed successfully.")
+
+
